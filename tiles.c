@@ -1,14 +1,19 @@
 /*
  * tiles.c
- * program which demonstraes tile mode 0
+ * program which demonstrates tile mode 0
  */
 
 /* include the image we are using */
+/*
 #include "background.h"
+*/
+
 
 /* include the tile map we are using */
+/*
 #include "map.h"
 #include "map2.h"
+*/
 
 /* the width and height of the screen */
 #define WIDTH 240
