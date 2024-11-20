@@ -320,29 +320,44 @@ void setup_sprite_image() {
     memcpy16_dma((unsigned short*) sprite_image_memory, (unsigned short*) chspk_data, (chspk_width * chspk_height) / 2);
 }
 
+enum State
+{
+    S, W, J
+};
+
 struct Fighter // Fighter struct
 {
     struct Sprite* sprite; // The sprite attribute info
     int x, y; // x & y position in pixels
     int vx, vy; // x & y velocity in 1/256 pixels/second
     int dx, dy; // x & y acceleration in 1/256 pixels/second^2
-    int move;
+    enum State state;
+    int walking;
+    int jumping;
     int animation_delay;
     int counter;
     int frame; // the frame of the animation the Fighter is on
     int border; // how many pixels away from the screen it stays
 };
+/* States:
+   0 : Standing
+   1 : Walking
+   2 : Jumping / Airborne
+   */
 
 // Initializes a Fighter
 void fighter_init(struct Fighter* fighter)
 {
     fighter->x = 100;
-    fighter->y = 50;
+    // 16 is the height of the floor, 64 is the height of the fighter
+    fighter->y = SCREEN_HEIGHT - 16 - 64;
     fighter->vx = 0;
     fighter->vy = 0;
-    fighter->dx = 0;
     fighter->dy = 50;
-    fighter->move = 0;
+    fighter->dx = fighter->x << 4;
+    fighter->state = S;
+    fighter->walking = 0;
+    fighter->jumping = 0;
     fighter->animation_delay = 7;
     fighter->counter = 0;
     fighter->frame = 0;
@@ -354,113 +369,87 @@ void fighter_init(struct Fighter* fighter)
 
 int fighter_forward(struct Fighter* fighter)
 {
-    fighter->move = 1;
+    fighter->state = W;
+    fighter->walking = 1;
 
     if (fighter->x > (SCREEN_WIDTH - 40 - fighter->border))
         return 1;
 
     else
     {
-        fighter->x += 2;
+        fighter->dx += 24; // walk speed in 1/16 pixels / frame
+        fighter->x = (fighter->dx >> 4);
         return 0;
     }
 }
 
 int fighter_backward(struct Fighter* fighter)
 {
-    fighter->move = -1;
+    fighter->state = W;
+    fighter->walking = 1;
 
     if (fighter->x < fighter->border)
         return 1;
 
     else
     {
-        fighter->x--;
+        fighter->dx -= 13; // walk speed in 1/16 pixels / frame
+        fighter->x = (fighter->dx >> 4);
         return 0;
     }
 }
 
-int fighter_stop(struct Fighter* fighter)
+void fighter_stop(struct Fighter* fighter)
 {
-    fighter->move = 0;
+    fighter->state = S;
     fighter->frame = 0;
     fighter->counter = 7;
     sprite_set_offset(fighter->sprite, fighter->frame);
 }
 
-/* finds which tile a screen coordinate maps to, taking scroll into account */
-unsigned short tile_lookup(int x, int y, int xscroll, int yscroll,
-        const unsigned short* tilemap, int tilemap_w, int tilemap_h) {
+void fighter_crouch(struct Fighter* fighter)
+{
+    fighter->state = S;
+    sprite_set_offset(fighter->sprite, 256);
+}
 
-    /* adjust for the scroll */
-    x += xscroll;
-    y += yscroll;
+void fighter_jump(struct Fighter* fighter)
+{
+    if (fighter->state != J)
+    {
+        fighter->state = J;
+        fighter->vy = -1350;
+        sprite_set_offset(fighter->sprite, 384);
 
-    /* convert from screen coordinates to tile coordinates */
-    x >>= 3;
-    y >>= 3;
-
-    /* account for wraparound */
-    while (x >= tilemap_w) {
-        x -= tilemap_w;
+        if (button_pressed(BUTTON_RIGHT))
+            fighter->vx = 24;
+        else if (button_pressed(BUTTON_LEFT))
+            fighter->vx = -13;
+        else
+            fighter->vx = 0;
     }
-    while (y >= tilemap_h) {
-        y -= tilemap_h;
-    }
-    while (x < 0) {
-        x += tilemap_w;
-    }
-    while (y < 0) {
-        y += tilemap_h;
-    }
+}
 
-    /* the larger screen maps (bigger than 32x32) are made of multiple stitched
-       together - the offset is used for finding which screen block we are in
-       for these cases */
-    int offset = 0;
+void fighter_update(struct Fighter* fighter)
+{
+    if (fighter->state == J)
+    {
+        fighter->y += (fighter->vy >> 8);
+        fighter->vy += fighter->dy;
+        fighter->x = (fighter->dx >> 4);
+        fighter->dx += fighter->vx;
 
-    /* if the width is 64, add 0x400 offset to get to tile maps on right   */
-    if (tilemap_w == 64 && x >= 32) {
-        x -= 32;
-        offset += 0x400;
-    }
-
-    /* if height is 64 and were down there */
-    if (tilemap_h == 64 && y >= 32) {
-        y -= 32;
-
-        /* if width is also 64 add 0x800, else just 0x400 */
-        if (tilemap_w == 64) {
-            offset += 0x800;
-        } else {
-            offset += 0x400;
+        if (fighter->y >= 80)
+        {
+            fighter->state = S;
+            fighter->y = 80;
+            fighter->vy = 0;
+            sprite_set_offset(fighter->sprite, 0);
         }
     }
 
-    /* find the index in this tile map */
-    int index = y * 32 + x;
-
-    /* return the tile */
-    return tilemap[index + offset];
-}
-
-void fighter_update(struct Fighter* fighter, int xscroll)
-{
-    unsigned short tile = tile_lookup(fighter->x + 8, fighter->y + 64, xscroll, 0, map,
-            map_width, map_height);
-
-    if ((tile >= 1 && tile <= 6) || 
-            (tile >= 12 && tile <= 17))
-    {
-        /* stop the fall! */
-        fighter->vy = 0;
-
-        /* make him line up with the top of a block works by clearing out the lower bits to 0 */
-        fighter->y &= ~0x3;
-    }
-
     /* update animation if moving */
-    if (fighter->move)
+    else if (fighter->state = W)
     {
         fighter->counter++;
 
@@ -502,31 +491,46 @@ int main() {
 
     /* set initial scroll to 0 */
     int xscroll = 0;
+    int bigscroll = xscroll << 4;
 
     /* loop forever */
     while (1) {
-        fighter_update(&player, xscroll);
+        fighter_update(&player);
 
-        /* now the arrow keys move the fighter*/
-        if (button_pressed(BUTTON_RIGHT)) {
-            if (fighter_forward(&player)) {
-                xscroll++;
+        if (player.state != J)
+        {
+            // Crouching checks
+            if (button_pressed(BUTTON_DOWN))
+            {
+                fighter_crouch(&player);
             }
-        } else if (button_pressed(BUTTON_LEFT)) {
-            if (fighter_backward(&player)) {
-                xscroll--;
+            else if (button_pressed(BUTTON_UP))
+            {
+                fighter_jump(&player);
             }
-        } else {
-            fighter_stop(&player);
+            // Walking left / right checks
+            else if (button_pressed(BUTTON_RIGHT))
+            {
+                if (fighter_forward(&player))
+                {
+                    bigscroll += 13;
+                    xscroll = bigscroll >> 4;
+                }
+            }
+            else if (button_pressed(BUTTON_LEFT))
+            {
+                if (fighter_backward(&player))
+                {
+                    bigscroll -= 13;
+                    xscroll = bigscroll >> 4;
+                }
+            }
+            else
+            {
+                fighter_stop(&player);
+            }
         }
-
-        /* check for jumping */
-        /*
-        if (button_pressed(BUTTON_A)) {
-            koopa_jump(&koopa);
-        }
-        */
-
+        
         /* wait for vblank before scrolling and moving sprites */
         wait_vblank();
         *bg0_x_scroll = xscroll;
