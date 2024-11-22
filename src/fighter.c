@@ -11,6 +11,7 @@
 
 /* include the sprite image we are using */
 #include "chspk.h"
+#define COLOR2 6144
 
 /* include the tile map we are using */
 #include "map.h"
@@ -314,17 +315,22 @@ void sprite_set_offset(struct Sprite* sprite, int offset) {
 /* setup the sprite image and palette */
 void setup_sprite_image() {
     /* load the palette from the image into palette memory*/
-    memcpy16_dma((unsigned short*) sprite_palette, (unsigned short*) chspk_palette, PALETTE_SIZE);
+    memcpy16_dma((unsigned short*) sprite_palette, (unsigned short*) chspk_palette,
+            PALETTE_SIZE);
 
     /* load the image into sprite image memory */
-    memcpy16_dma((unsigned short*) sprite_image_memory, (unsigned short*) chspk_data, (chspk_width * chspk_height) / 2);
+    memcpy16_dma((unsigned short*) sprite_image_memory, (unsigned short*) chspk_data,
+            (chspk_width * chspk_height) / 2);
 }
 
 enum State
 {
-    S, W, J
+    S, W, C, J
 };
 
+#define FTR_WIDTH 32
+#define FTR_HEIGHT 64
+#define FTR_VPUSH 7
 struct Fighter // Fighter struct
 {
     struct Sprite* sprite; // The sprite attribute info
@@ -332,68 +338,85 @@ struct Fighter // Fighter struct
     int vx, vy; // x & y velocity in 1/256 pixels/second
     int dx, dy; // x & y acceleration in 1/256 pixels/second^2
     enum State state;
-    int walking;
-    int jumping;
+    int facing; // 0 for facing right, 1 for left
+
+    int health;
+    int vwf, vwb; // walkspeed forward and backward, respectively (1/16 pixels/frame)
+    int vjf, vjb; // forward and backward jump velocity (1/16 pixels/frame)
+
     int animation_delay;
     int counter;
+    int color; // the offset in the sprite sheet for the fighter's color
     int frame; // the frame of the animation the Fighter is on
     int border; // how many pixels away from the screen it stays
 };
-/* States:
-   0 : Standing
-   1 : Walking
-   2 : Jumping / Airborne
-   */
+
+void fighter_set_frame(struct Fighter* fighter, int frame)
+{
+    fighter->frame = frame + fighter->color;
+}
 
 // Initializes a Fighter
-void fighter_init(struct Fighter* fighter)
+void fighter_init(struct Fighter* fighter, int player)
 {
-    fighter->x = 100;
     // 16 is the height of the floor, 64 is the height of the fighter
     fighter->y = SCREEN_HEIGHT - 16 - 64;
+    fighter->x = player ? 60 : 116;
     fighter->vx = 0;
     fighter->vy = 0;
     fighter->dy = 50;
-    fighter->dx = fighter->x << 4;
     fighter->state = S;
-    fighter->walking = 0;
-    fighter->jumping = 0;
+    fighter->facing = player ? 0 : 1;
+
+    fighter->health = 100;
+    fighter->vwf = 24;
+    fighter->vwb = 13;
+    fighter->vjf = 24;
+    fighter->vjb = 13;
+
     fighter->animation_delay = 7;
     fighter->counter = 0;
     fighter->frame = 0;
     fighter->border = 3;
 
-    fighter->sprite = sprite_init(fighter->x, fighter->y, SIZE_64_64, 0, 0,
-            fighter->frame, 0);
+    fighter->sprite = sprite_init(fighter->x, fighter->y, SIZE_64_64, fighter->facing,
+            0, fighter->frame, 0);
+    fighter->dx = fighter->x << 4;
 }
 
-int fighter_forward(struct Fighter* fighter)
+int fighter_right(struct Fighter* fighter, struct Fighter* enemy)
 {
     fighter->state = W;
-    fighter->walking = 1;
 
-    if (fighter->x > (SCREEN_WIDTH - 40 - fighter->border))
+
+    if (fighter->x > (SCREEN_WIDTH - fighter->border - (fighter->facing ? 0
+                    : FTR_WIDTH)))
         return 1;
+
+    else if (!fighter->facing && fighter->dx + fighter->vwf >= enemy->dx)
+        return 0;
 
     else
     {
-        fighter->dx += 24; // walk speed in 1/16 pixels / frame
+        fighter->dx += fighter->facing ? fighter->vwb : fighter->vwf;
         fighter->x = (fighter->dx >> 4);
         return 0;
     }
 }
 
-int fighter_backward(struct Fighter* fighter)
+int fighter_left(struct Fighter* fighter, struct Fighter* enemy)
 {
     fighter->state = W;
-    fighter->walking = 1;
 
-    if (fighter->x < fighter->border)
+    if (fighter->x < fighter->border - (fighter->facing ? FTR_WIDTH : 0))
         return 1;
+
+    else if (fighter->facing && fighter->dx - fighter->vwf <= enemy->dx + FTR_WIDTH)
+        return 0;
 
     else
     {
-        fighter->dx -= 13; // walk speed in 1/16 pixels / frame
+        fighter->dx -= fighter->facing ? fighter->vwf : fighter->vwb;
         fighter->x = (fighter->dx >> 4);
         return 0;
     }
@@ -402,6 +425,7 @@ int fighter_backward(struct Fighter* fighter)
 void fighter_stop(struct Fighter* fighter)
 {
     fighter->state = S;
+    // fighter_set_frame(fighter, 0);
     fighter->frame = 0;
     fighter->counter = 7;
     sprite_set_offset(fighter->sprite, fighter->frame);
@@ -409,7 +433,7 @@ void fighter_stop(struct Fighter* fighter)
 
 void fighter_crouch(struct Fighter* fighter)
 {
-    fighter->state = S;
+    fighter->state = C;
     sprite_set_offset(fighter->sprite, 256);
 }
 
@@ -430,7 +454,7 @@ void fighter_jump(struct Fighter* fighter)
     }
 }
 
-void fighter_update(struct Fighter* fighter)
+void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
 {
     if (fighter->state == J)
     {
@@ -455,6 +479,7 @@ void fighter_update(struct Fighter* fighter)
 
         if (fighter->counter >= fighter->animation_delay)
         {
+            // fighter_set_frame(fighter, 128);
             fighter->frame = fighter->frame + 128;
 
             if (fighter->frame > 128)
@@ -465,6 +490,17 @@ void fighter_update(struct Fighter* fighter)
             sprite_set_offset(fighter->sprite, fighter->frame);
             fighter->counter = 0;
         }
+    }
+
+    if (fighter->facing && fighter->x < enemy->x + (FTR_WIDTH / 2))
+        fighter->facing = 0;
+
+    else if (!fighter->facing && fighter->x > enemy->x + (FTR_WIDTH / 2))
+        fighter->facing = 1;
+
+    if (fighter->facing != (fighter->sprite->attribute1 & (1 << 12)))
+    {
+        sprite_set_horizontal_flip(fighter->sprite, fighter->facing);
     }
 
     /* set on screen position */
@@ -487,15 +523,17 @@ int main() {
 
     /* create the player*/
     struct Fighter player;
-    fighter_init(&player);
+    fighter_init(&player, 1);
+    struct Fighter enemy;
+    fighter_init(&enemy, 0);
 
     /* set initial scroll to 0 */
     int xscroll = 0;
-    int bigscroll = xscroll << 4;
 
     /* loop forever */
-    while (1) {
-        fighter_update(&player);
+    while (1)
+    {
+        fighter_update(&player, &enemy);
 
         if (player.state != J)
         {
@@ -511,29 +549,39 @@ int main() {
             // Walking left / right checks
             else if (button_pressed(BUTTON_RIGHT))
             {
-                if (fighter_forward(&player))
+                if (fighter_right(&player, & enemy))
                 {
-                    bigscroll += 13;
-                    xscroll = bigscroll >> 4;
+                    xscroll += 13;
                 }
             }
             else if (button_pressed(BUTTON_LEFT))
             {
-                if (fighter_backward(&player))
+                if (fighter_left(&player, & enemy))
                 {
-                    bigscroll -= 13;
-                    xscroll = bigscroll >> 4;
+                    xscroll -= 13;
                 }
             }
             else
             {
                 fighter_stop(&player);
             }
+
+            if (button_pressed(BUTTON_SELECT))
+            {
+                struct Fighter temp;
+                temp = player;
+                player = enemy;
+                enemy = temp;
+            }
+            if (button_pressed(BUTTON_R))
+            {
+                player.facing = player.facing ? 0 : 1;
+            }
         }
         
         /* wait for vblank before scrolling and moving sprites */
         wait_vblank();
-        *bg0_x_scroll = xscroll;
+        *bg0_x_scroll = xscroll >> 4;
         sprite_update_all();
 
         /* delay some */

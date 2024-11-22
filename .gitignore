@@ -1,2 +1,7 @@
 *.swp
 program.gba
+*.png
+koopa.h
+collide.c
+../collide.c
+../square5.c
