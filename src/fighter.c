@@ -66,9 +66,12 @@ int fighter_right(struct Fighter* fighter, struct Fighter* enemy)
     if (fighter->x + FTR_WIDTH > SCREEN_WIDTH - FTR_BORDER)
         return 1;
 
-    else if (!fighter->dir && fighter->bx + fighter->vwf + (FTR_WIDTH << 4) >=
-            enemy->bx)
+    else if (!fighter->dir && fighter->bx + fighter->vwf + (FTR_WIDTH << 4)
+            >= enemy->bx)
+    {
+        fighter->vx = 0;
         return 0;
+    }
 
     else
     {
@@ -87,8 +90,12 @@ int fighter_left(struct Fighter* fighter, struct Fighter* enemy)
     /* the dir check is actually necessary
        if it's not there, you can't walk backwards
        */
-    else if (fighter->dir && fighter->bx - fighter->vwf <= enemy->bx + (FTR_WIDTH << 4))
+    else if (fighter->dir && fighter->bx - fighter->vwf
+            <= enemy->bx + (FTR_WIDTH << 4))
+    {
+        fighter->vx = 0;
         return 0;
+    }
 
     else
     {
@@ -163,8 +170,8 @@ void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
             break;
     }
     
-    fighter->bx += fighter->vx;
     fighter->x = (fighter->bx >> 4);
+    fighter->bx += fighter->vx;
 
     // turns fighters around
     if (fighter->dir && fighter->x < enemy->x + (FTR_WIDTH / 2))
@@ -184,38 +191,34 @@ void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
 int background_update(struct Fighter* player, struct Fighter* enemy)
 {
     // if there is a fighter at both edges of the screen
-    if ((player->x < FTR_BORDER || enemy->x < FTR_BORDER)
-            && (player->x + FTR_WIDTH > SCREEN_WIDTH - FTR_BORDER
-            || enemy->x + FTR_WIDTH > SCREEN_WIDTH - FTR_BORDER))
+    if (player->x < FTR_BORDER && enemy->x + FTR_WIDTH > SCREEN_WIDTH - FTR_BORDER)
     {
-        player->vx = 0;
-        enemy->vx = 0;
+        player->x += FTR_BORDER - player->x;
+        enemy->x -= FTR_BORDER - enemy->x;
         return 0;
     }
+    else if (player->x + FTR_WIDTH > SCREEN_WIDTH - FTR_BORDER && enemy->x < FTR_BORDER)
+    {
+        player->x -= FTR_BORDER - player->x;
+        enemy->x += FTR_BORDER - enemy->x;
+        return 0;
+    }
+ 
 
     if (player->x < FTR_BORDER)
     {
-        enemy->bx += player->vx;
-        enemy->x = enemy->bx;
+        player->bx += (FTR_BORDER << 4) - player->bx;
+        enemy->bx -= player->vx;
         return player->vx;
     }
     else if (enemy->x < FTR_BORDER)
     {
-        player->bx += enemy->vx;
-        player->x = player->bx;
-        return enemy->vx;
     }
     else if (player->x + FTR_WIDTH > SCREEN_WIDTH - FTR_BORDER)
     {
-        enemy->bx -= player->vx;
-        enemy->x = enemy->bx;
-        return player->vx;
     }
     else if (enemy->x + FTR_WIDTH > SCREEN_WIDTH - FTR_BORDER)
     {
-        player->bx -= enemy->vx;
-        player->x = player->bx;
-        return enemy->vx;
     }
     else
         return 0;
@@ -248,8 +251,7 @@ int main() {
     while (1)
     {
         fighter_update(&player, &enemy);
-
-        xscroll += background_update(&player, &enemy);
+        fighter_update(&enemy, &player);
 
         // input handling
         switch (player.state)
@@ -274,17 +276,23 @@ int main() {
                 }
                 else if (button_pressed(BUTTON_RIGHT))
                 {
+                    /*
                     if (fighter_right(&player, &enemy))
                     {
                         xscroll += 13;
                     }
+                    */
+                    fighter_right(&player, &enemy);
                 }
                 else if (button_pressed(BUTTON_LEFT))
                 {
+                    /*
                     if (fighter_left(&player, &enemy))
                     {
                         xscroll -= 13;
                     }
+                    */
+                    fighter_left(&player, &enemy);
                 }
                 else
                 {
@@ -307,6 +315,7 @@ int main() {
            Move the other fighter as well
            If the other fighter is at the other edge of the screen, don't scroll
            */
+        xscroll += background_update(&player, &enemy);
         
         /* wait for vblank before scrolling and moving sprites */
         wait_vblank();
