@@ -1,9 +1,35 @@
 #include "gba.c"
 
+void sprite_set_size(struct Sprite* sprite, enum SpriteSize size)
+{
+    int size_bits, shape_bits;
+    switch (size) {
+        case SIZE_8_8:   size_bits = 0; shape_bits = 0; break;
+        case SIZE_16_16: size_bits = 1; shape_bits = 0; break;
+        case SIZE_32_32: size_bits = 2; shape_bits = 0; break;
+        case SIZE_64_64: size_bits = 3; shape_bits = 0; break;
+        case SIZE_16_8:  size_bits = 0; shape_bits = 1; break;
+        case SIZE_32_8:  size_bits = 1; shape_bits = 1; break;
+        case SIZE_32_16: size_bits = 2; shape_bits = 1; break;
+        case SIZE_64_32: size_bits = 3; shape_bits = 1; break;
+        case SIZE_8_16:  size_bits = 0; shape_bits = 2; break;
+        case SIZE_8_32:  size_bits = 1; shape_bits = 2; break;
+        case SIZE_16_32: size_bits = 2; shape_bits = 2; break;
+        case SIZE_32_64: size_bits = 3; shape_bits = 2; break;
+    }
+
+    sprite->attribute0 &= 0x3fff; // clears the shape bits
+    sprite->attribute0 |= shape_bits << 14; // sets the new bits
+
+    sprite->attribute1 &= 0x3fff; // clears the size bits
+    sprite->attribute1 |= size_bits << 14; // sets the new bits
+}
+
 enum State
 {
     STANDING, WALKING, CROUCHING, AIRBORNE, DASHING, BACKDASH, STARTUP, ACTIVE,
-    RECOVERY, BLOCKSTUN, HITSTUN
+    RECOVERY, BLOCKSTUN, HITSTUN,
+    SA, SB, CA, CB, JA, JB, QCF_A, DP_B, QCB_B
 };
 
 #define FTR_WIDTH 32
@@ -12,7 +38,6 @@ enum State
 #define FTR_HEALTH 100
 struct Fighter // Fighter struct
 {
-    struct Sprite* sprite; // The sprite attribute info
     int x, y; // x & y position in pixels
     int vx, vy; // x & y velocity in 1/256 pixels/second
     int bx; // the 'big x', i.e. the x << 4 for fine speed and shit
@@ -29,14 +54,21 @@ struct Fighter // Fighter struct
     int counter;
     int color; // the offset in the sprite sheet for the fighter's color
     int frame; // the frame of the animation the Fighter is on
+
+    // the sprites that make up the fighter
+    struct Sprite* body;
+    struct Sprite* horns;
+    struct Sprite* backLeg;
+    struct Sprite* frontLeg;
+    struct Sprite* attack;
 };
 
 // Initializes a Fighter
 void fighter_init(struct Fighter* fighter, int player)
 {
-    // 16 is the height of the floor, 64 is the height of the fighter
-    fighter->y = SCREEN_HEIGHT - 16 - 64;
-    fighter->x = player ? 60 : 116;
+    // 16 is the height of the floor, 48 is the height of the fighter
+    fighter->y = SCREEN_HEIGHT - 64;
+    fighter->x = player ? 76 : 132;
     fighter->vx = 0;
     fighter->vy = 0;
     fighter->bx = fighter->x << 4;
@@ -55,8 +87,16 @@ void fighter_init(struct Fighter* fighter, int player)
     fighter->counter = 0;
     fighter->frame = 0;
 
-    fighter->sprite = sprite_init(fighter->x, fighter->y, SIZE_64_64,
-            fighter->dir, 0, fighter->frame, 0);
+    fighter->body = sprite_init(fighter->x, fighter->y, SIZE_32_32, fighter->dir,
+            0, 0, 0);
+    fighter->horns = sprite_init(fighter->x + (fighter->dir ? 0 : 16), fighter->y - 8, 
+            SIZE_16_8, fighter->dir, 0, 32, 0);
+    fighter->backLeg = sprite_init(fighter->x + (fighter->dir ? 19 : 5),
+            fighter->y + 32, SIZE_8_16, fighter->dir, 0, 36, 0);
+    fighter->frontLeg = sprite_init(fighter->x + (fighter->dir ? 3 : 21),
+            fighter->y + 32, SIZE_8_16, fighter->dir, 0, 36, 0);
+    fighter->attack = sprite_init(fighter->x - (fighter->dir ? 32 : 0), fighter->y,
+            SIZE_8_8, fighter->dir, 0, 992, 0);
 }
 
 int fighter_right(struct Fighter* fighter, struct Fighter* enemy)
@@ -116,7 +156,7 @@ void fighter_crouch(struct Fighter* fighter)
 {
     fighter->state = CROUCHING;
     fighter->vx = 0;
-    fighter->frame = 256;
+    fighter->y = SCREEN_HEIGHT - 48;
 }
 
 void fighter_jump(struct Fighter* fighter)
@@ -133,33 +173,62 @@ void fighter_jump(struct Fighter* fighter)
         fighter->vx = 0;
 }
 
+void fighter_flip(struct Fighter* fighter)
+{
+    sprite_set_horizontal_flip(fighter->body, fighter->dir);
+    sprite_set_horizontal_flip(fighter->horns, fighter->dir);
+    sprite_set_horizontal_flip(fighter->backLeg, fighter->dir);
+    sprite_set_horizontal_flip(fighter->frontLeg, fighter->dir);
+    sprite_set_horizontal_flip(fighter->attack, fighter->dir);
+}
+
 void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
 {
+    int blx = fighter->x + (fighter->dir ? 19 : 5);
+    int bly = fighter->y + 32;
+    int flx = fighter->x + (fighter->dir ? 3 : 21);
+    int fly = fighter->y + 32;
+    int atx = fighter->x - (fighter->dir ? 32 : 0);
+    int aty = fighter->y;
+
     switch (fighter->state)
     {
+        case CROUCHING:
+            bly -= 16;
+            fly -= 16;
+            break;
+
         case AIRBORNE:
             fighter->y += (fighter->vy >> 8);
             fighter->vy += fighter->dy;
 
-            if (fighter->y >= 80)
+            bly -= 16;
+            fly -= 16;
+
+            if (fighter->y >= SCREEN_HEIGHT - 48)
             {
                 fighter->state = STANDING;
-                fighter->y = 80;
                 fighter->vy = 0;
-                sprite_set_offset(fighter->sprite, 0);
             }
             break;
 
         case WALKING:
+            fighter->y = SCREEN_HEIGHT - 64;
             fighter->counter++;
 
             if (fighter->counter >= fighter->animation_delay)
             {
-                fighter->frame = fighter->frame + 128;
-
-                if (fighter->frame > 128)
+                if (fighter->frame)
                 {
-                    fighter->frame = 0;
+                    // set the frontLeg sprite to be bigger
+                    // and change it's offset
+                    // and then change frame to be false
+                }
+                else
+                {
+                    // set the frontLeg sprite to be 8x16 again
+                    // and change it's offset back to 36
+                    // and then change frame to be true
                 }
 
                 fighter->counter = 0;
@@ -167,6 +236,7 @@ void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
             break;
 
         case STANDING:
+            fighter->y = SCREEN_HEIGHT - 64;
             break;
     }
     
@@ -180,12 +250,16 @@ void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
     else if (!fighter->dir && fighter->x > enemy->x + (FTR_WIDTH / 2))
         fighter->dir = 1;
 
-    if (fighter->dir != (fighter->sprite->attribute1 & (1 << 12)))
-        sprite_set_horizontal_flip(fighter->sprite, fighter->dir);
+    if (fighter->dir != (fighter->body->attribute1 & (1 << 12)))
+        fighter_flip(fighter);
 
-    // updates the sprite
-    sprite_set_offset(fighter->sprite, fighter->frame);
-    sprite_position(fighter->sprite, fighter->x, fighter->y);
+    // updates the sprites
+    sprite_position(fighter->body, fighter->x, fighter->y);
+    sprite_position(fighter->horns, fighter->x + (fighter->dir ? 0 : 16),
+            fighter->y - 8);
+    sprite_position(fighter->backLeg, blx, bly);
+    sprite_position(fighter->frontLeg, flx, fly);
+    sprite_position(fighter->attack, atx, aty);
 }
 
 int background_update(struct Fighter* player, struct Fighter* enemy)
