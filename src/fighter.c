@@ -220,15 +220,17 @@ void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
             {
                 if (fighter->frame)
                 {
-                    // set the frontLeg sprite to be bigger
-                    // and change it's offset
-                    // and then change frame to be false
+                    sprite_set_size(fighter->frontLeg, SIZE_8_16);
+                    sprite_set_offset(fighter->frontLeg, 36);
+                    sprite_position(fighter->frontLeg, flx, fly);
+                    fighter->frame = 0;
                 }
                 else
                 {
-                    // set the frontLeg sprite to be 8x16 again
-                    // and change it's offset back to 36
-                    // and then change frame to be true
+                    sprite_set_size(fighter->frontLeg, SIZE_16_16);
+                    sprite_set_offset(fighter->frontLeg, 40);
+                    sprite_position(fighter->frontLeg, flx + 8, fly);
+                    fighter->frame = 1;
                 }
 
                 fighter->counter = 0;

@@ -1,0 +1,6 @@
+512 total tiles
+Body                : 0
+Horns               : 32
+Leg / Arm           : 36
+Attack (neutral)    : 991
+Front Leg (walking) : 40
