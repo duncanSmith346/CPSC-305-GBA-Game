@@ -83,7 +83,7 @@ void fighter_init(struct Fighter* fighter, int player)
     fighter->vjf = 24;
     fighter->vjb = 13;
 
-    fighter->animation_delay = 7;
+    fighter->animation_delay = 10;
     fighter->counter = 0;
     fighter->frame = 0;
 
@@ -149,7 +149,10 @@ void fighter_stop(struct Fighter* fighter)
     fighter->state = STANDING;
     fighter->vx = 0;
     fighter->frame = 0;
-    fighter->counter = 7;
+    fighter->counter = 10;
+
+    sprite_set_size(fighter->frontLeg, SIZE_8_16);
+    sprite_set_offset(fighter->frontLeg, 36);
 }
 
 void fighter_crouch(struct Fighter* fighter)
@@ -157,6 +160,9 @@ void fighter_crouch(struct Fighter* fighter)
     fighter->state = CROUCHING;
     fighter->vx = 0;
     fighter->y = SCREEN_HEIGHT - 48;
+
+    sprite_set_size(fighter->frontLeg, SIZE_8_16);
+    sprite_set_offset(fighter->frontLeg, 36);
 }
 
 void fighter_jump(struct Fighter* fighter)
@@ -164,6 +170,9 @@ void fighter_jump(struct Fighter* fighter)
     fighter->state = AIRBORNE;
     fighter->vy = -1350;
     fighter->frame = 384;
+
+    sprite_set_size(fighter->frontLeg, SIZE_8_16);
+    sprite_set_offset(fighter->frontLeg, 36);
 
     if (button_pressed(BUTTON_RIGHT))
         fighter->vx = fighter->dir ? fighter->vjb : fighter->vjf;
@@ -222,19 +231,20 @@ void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
                 {
                     sprite_set_size(fighter->frontLeg, SIZE_8_16);
                     sprite_set_offset(fighter->frontLeg, 36);
-                    sprite_position(fighter->frontLeg, flx, fly);
                     fighter->frame = 0;
                 }
                 else
                 {
                     sprite_set_size(fighter->frontLeg, SIZE_16_16);
                     sprite_set_offset(fighter->frontLeg, 40);
-                    sprite_position(fighter->frontLeg, flx + 8, fly);
                     fighter->frame = 1;
                 }
 
                 fighter->counter = 0;
             }
+
+            if (fighter->frame && fighter->dir)
+                flx -= 8;
             break;
 
         case STANDING:
