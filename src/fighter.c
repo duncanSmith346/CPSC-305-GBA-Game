@@ -299,12 +299,22 @@ int background_update(struct Fighter* player, struct Fighter* enemy)
     }
     else if (enemy->x < FTR_BORDER)
     {
+        enemy->bx += (FTR_BORDER << 4) - player->bx;
+        player->bx -= enemy->vx;
+        return enemy->vx;
     }
     else if (player->x + FTR_WIDTH > SCREEN_WIDTH - FTR_BORDER)
     {
+        player->bx -= player->bx + (FTR_WIDTH << 4)
+            - ((SCREEN_WIDTH - FTR_BORDER) << 4);
+        enemy->bx -= player->vx;
+        return player->vx;
     }
     else if (enemy->x + FTR_WIDTH > SCREEN_WIDTH - FTR_BORDER)
     {
+        enemy->bx -= enemy->bx - ((SCREEN_WIDTH - FTR_BORDER) << 4);
+        player->bx -= enemy->vx;
+        return enemy->vx;
     }
     else
         return 0;
