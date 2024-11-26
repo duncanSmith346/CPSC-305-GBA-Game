@@ -1,5 +1,7 @@
 #include "gba.c"
 
+void setSize(struct Sprite* sprite, int shape_bits, int size_bits);
+
 void sprite_set_size(struct Sprite* sprite, enum SpriteSize size)
 {
     int size_bits, shape_bits;
@@ -18,11 +20,32 @@ void sprite_set_size(struct Sprite* sprite, enum SpriteSize size)
         case SIZE_32_64: size_bits = 3; shape_bits = 2; break;
     }
 
-    sprite->attribute0 &= 0x3fff; // clears the shape bits
-    sprite->attribute0 |= shape_bits << 14; // sets the new bits
+    setSize(sprite, shape_bits, size_bits);
+}
 
-    sprite->attribute1 &= 0x3fff; // clears the size bits
-    sprite->attribute1 |= size_bits << 14; // sets the new bits
+struct Attack
+{
+    int st, ac, rc;
+    int hbx, hby, hbw, hbh;
+    int dmg;
+    int spo, spx, spy;
+    enum SpriteSize size;
+};
+
+void attack_init(struct Attack* atk, int params[], enum SpriteSize size)
+{
+    atk->st = params[0];
+    atk->ac = params[1];
+    atk->rc = params[2];
+    atk->hbx = params[3];
+    atk->hby = params[4];
+    atk->hbw = params[5];
+    atk->hbh = params[6];
+    atk->dmg = params[7];
+    atk->spo = params[8];
+    atk->spx = params[9];
+    atk->spy = params[10];
+    atk->size = size;
 }
 
 enum State
@@ -61,6 +84,8 @@ struct Fighter // Fighter struct
     struct Sprite* backLeg;
     struct Sprite* frontLeg;
     struct Sprite* attack;
+    
+    struct Attack* sa, sb, ca, cb, ja, jb, qcfa, qcbb, dpb;
 };
 
 // Initializes a Fighter
@@ -97,6 +122,10 @@ void fighter_init(struct Fighter* fighter, int player)
             fighter->y + 32, SIZE_8_16, fighter->dir, 0, 36, 0);
     fighter->attack = sprite_init(fighter->x - (fighter->dir ? 32 : 0), fighter->y,
             SIZE_8_8, fighter->dir, 0, 992, 0);
+
+    // 5A
+    int params[] = {5, 3, 7, 0, 14, 16, 8, 6, 36, 0, 14};
+    attack_init(fighter->sa, params, SIZE_16_8);
 }
 
 int fighter_right(struct Fighter* fighter, struct Fighter* enemy)
@@ -259,7 +288,7 @@ void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
     if (fighter->dir && fighter->x < enemy->x + (FTR_WIDTH / 2))
         fighter->dir = 0;
 
-    else if (!fighter->dir && fighter->x > enemy->x + (FTR_WIDTH / 2))
+    else if (!fighter->dir && fighter->x + (FTR_WIDTH / 2) > enemy->x)
         fighter->dir = 1;
 
     if (fighter->dir != (fighter->body->attribute1 & (1 << 12)))
