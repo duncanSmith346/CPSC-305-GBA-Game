@@ -4,3 +4,5 @@ Horns               : 32
 Leg / Arm           : 36
 Attack (neutral)    : 991
 Front Leg (walking) : 40
+
+Health Bar          : 72

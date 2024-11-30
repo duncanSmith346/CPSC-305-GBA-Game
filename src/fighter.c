@@ -50,6 +50,28 @@ struct Attack attack_init(int params[], enum SpriteSize size)
     return atk;
 }
 
+struct HealthBar
+{
+    int x, y;
+    int health;
+    struct Sprite* start, middle, end;
+};
+
+struct HealthBar hp_bar_init(int player)
+{
+    struct HealthBar bar;
+    bar.x = player ? 5 : 139;
+    bar.y = 5;
+    bar.health = 96;
+
+    int st_of = bar.x + (player ? 0 : 64);
+    int end_of = bar.x + (player ? 64 : 0);
+
+    bar.start = sprite_init(st_of, bar.y, SIZE_32_8, 0, 0, 72, 1);
+    bar.middle = sprite_init(bar.x + 32, bar.y, SIZE_32_8, 0, 0, 72, 1);
+    bar.end = sprite_init(end_of, bar.y, SIZE_32_8, 0, 0, 72, 1);
+}
+
 enum State
 {
     STANDING, WALKING, CROUCHING, AIRBORNE, DASHING, BACKDASH, BLOCKSTUN, HITSTUN,
@@ -59,7 +81,7 @@ enum State
 #define FTR_WIDTH 32
 #define FTR_HEIGHT 48
 #define FTR_BORDER 3
-#define FTR_HEALTH 100
+#define FTR_HEALTH 96
 struct Fighter // Fighter struct
 {
     int x, y; // x & y position in pixels
@@ -88,6 +110,7 @@ struct Fighter // Fighter struct
     struct Sprite* attack;
 
     struct Attack moves[9];
+    struct HealthBar hp;
 };
 
 // Initializes a Fighter
@@ -128,6 +151,14 @@ void fighter_init(struct Fighter* fighter, int player)
     // 5A
     int params[] = {20, 15, 30, 14, 16, 8, 6, 36, 0, 14};
     fighter->moves[0] = attack_init(params, SIZE_16_8);
+    // 5B
+    // 2A
+    // 2B
+    // j.A
+    // j.B
+    // 236A
+    // 214B
+    // 623B
 }
 
 int fighter_right(struct Fighter* fighter, struct Fighter* enemy)
@@ -234,8 +265,6 @@ void fighter_flip(struct Fighter* fighter)
     sprite_set_horizontal_flip(fighter->attack, fighter->dir);
 }
 
-
-
 void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
 {
     int blx = fighter->x + (fighter->dir ? 19 : 5);
@@ -277,6 +306,8 @@ void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
             sprite_set_offset(fighter->attack,
                     fighter->moves[fighter->move].spo);
             aty += fighter->moves[fighter->move].spy;
+
+            // Do the checks to see if it hits
             break;
 
         case RECOVERY:
@@ -314,6 +345,7 @@ void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
 
         case WALKING:
             fighter->y = SCREEN_HEIGHT - 64;
+            sprite_set_offset(fighter->attack, 100);
             fighter->counter++;
 
             if (fighter->counter >= fighter->animation_delay)
@@ -366,6 +398,11 @@ void fighter_update(struct Fighter* fighter, struct Fighter* enemy)
     sprite_position(fighter->attack, atx, aty);
 }
 
+void draw_healthbar(struct fighter f, int p)
+{
+    // draw the damn health bar
+}
+
 int background_update(struct Fighter* player, struct Fighter* enemy)
 {
     int scroll = 0;
@@ -402,7 +439,7 @@ int background_update(struct Fighter* player, struct Fighter* enemy)
 /* the main function */
 int main() {
     /* we set the mode to mode 0 with bg0 on */
-    *display_control = MODE0 | BG0_ENABLE | SPRITE_ENABLE | SPRITE_MAP_1D;
+    *display_control = MODE0 | BG0_ENABLE | BG1_ENABLE | SPRITE_ENABLE | SPRITE_MAP_1D;
 
     /* setup the background 0 */
     setup_background();
@@ -476,12 +513,6 @@ int main() {
             enemy = temp;
         }
 
-        // manage the scrolling of the screen
-        /* If either fighter moves to the edge of the screen for any reason,
-           prevent them from moving past it and scroll the background to compensate
-           Move the other fighter as well
-           If the other fighter is at the other edge of the screen, don't scroll
-           */
         xscroll += background_update(&player, &enemy);
         
         /* wait for vblank before scrolling and moving sprites */
